@@ -1,0 +1,60 @@
+{
+  "header": {
+    "payroll_no": 1,
+    "week_ending": "08/29/2026",
+    "project_location": "white hall general | White Hall, IL",
+    "contract_no": "[Federal contract #]"
+  },
+  "wage_determination": {
+    "trade": "Electrician",
+    "base_rate": 30.49,
+    "fringe_rate": 8.58
+  },
+  "employees": [
+    {
+      "name": "Melton, Garrett | 1036",
+      "db_hours": 21.55,
+      "db_fringe_hours": 21.55,
+      "stub_wages": 1165.56,
+      "stub_fica": 89.17,
+      "stub_wh": 97.94,
+      "stub_other": 193.18,
+      "daily_hours": [0, 5.39, 5.39, 5.39, 0, 0, 5.38]
+    },
+    {
+      "name": "Hancock, Austin | 0692",
+      "db_hours": 21.55,
+      "db_fringe_hours": 21.55,
+      "stub_wages": 1173.16,
+      "stub_fica": 89.74,
+      "stub_wh": 98.86,
+      "stub_other": 58.07,
+      "daily_hours": [0, 5.39, 5.39, 5.39, 0, 0, 5.38]
+    },
+    {
+      "name": "Wallace, Charles D. | 4653",
+      "db_hours": 21.55,
+      "db_fringe_hours": 21.55,
+      "stub_wages": 1157.96,
+      "stub_fica": 88.58,
+      "stub_wh": 97.03,
+      "stub_other": 57.32,
+      "daily_hours": [0, 5.39, 5.39, 5.39, 0, 0, 5.38]
+    },
+    {
+      "name": "Gaffner, Kamron A. | 9287",
+      "db_hours": 21.55,
+      "db_fringe_hours": 21.55,
+      "stub_wages": 1257.96,
+      "stub_fica": 96.24,
+      "stub_wh": 109.03,
+      "stub_other": 62.27,
+      "daily_hours": [0, 5.39, 5.39, 5.39, 0, 0, 5.38]
+    }
+  ],
+  "page2": {
+    "date": "08/28/2026",
+    "name": "James M. Carpenter",
+    "title": "Owner / Subcontractor"
+  }
+}

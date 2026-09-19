@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WH-347 Builder — Under the Sun Solar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .drop-zone { border: 2px dashed #aaa; transition: 0.15s; }
+  .drop-zone.dragover { border-color: #2563eb; background: #eff6ff; }
+  pre { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .num { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+  <div>
+    <h1 class="text-xl font-semibold">WH-347 Builder</h1>
+    <p class="text-xs text-slate-400">Under the Sun Solar · FEIN 99-1689536 · Davis-Bacon certified payroll</p>
+  </div>
+  <div class="text-right text-xs text-slate-400">
+    <div>Drop a QBO pay-stub PDF or paste stub text below.</div>
+    <div>Then export the JSON config and hand it to Mavis.</div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto p-6 space-y-6">
+
+<!-- ========== STEP 1: Source data ========== -->
+<section class="bg-white rounded-lg shadow p-5">
+  <h2 class="text-lg font-semibold mb-3">1. Source data</h2>
+
+  <div id="dropzone" class="drop-zone rounded-md p-6 text-center text-slate-500 cursor-pointer">
+    <div class="text-3xl mb-1">📄</div>
+    <div class="text-sm">Drop a QBO pay-stub PDF here, or click to choose a file</div>
+    <div class="text-xs text-slate-400 mt-1">Multiple files OK — one per employee. Or paste raw stub text below.</div>
+    <input id="fileinput" type="file" accept="application/pdf" multiple class="hidden" />
+  </div>
+
+  <details class="mt-3">
+    <summary class="text-sm text-slate-600 cursor-pointer">…or paste raw stub text (one employee at a time)</summary>
+    <textarea id="stubtext" rows="6" class="w-full mt-2 border rounded p-2 text-xs"
+              placeholder="Paste QBO stub text here. Format example:&#10;&#10;PAY TO&#10;Austin Hancock&#10;NET PAY&#10;$926.49&#10;Pay period&#10;08/23/2026 to 08/29/2026&#10;TYPE  Hours  Rate  Current&#10;Regular Pay  7.60  $27  $205.20&#10;New Electrician Greene County PW  21.55  $30.49  $657.06&#10;..."></textarea>
+    <button id="parseText" class="mt-2 px-3 py-1.5 bg-slate-800 text-white text-sm rounded">Parse text →</button>
+  </details>
+
+  <div id="rawDump" class="mt-3 hidden">
+    <div class="text-xs font-semibold text-slate-500 mb-1">Extracted text (raw):</div>
+    <pre id="rawText" class="bg-slate-50 border rounded p-2 max-h-40 overflow-auto"></pre>
+  </div>
+</section>
+
+<!-- ========== STEP 2: Header ========== -->
+<section class="bg-white rounded-lg shadow p-5">
+  <h2 class="text-lg font-semibold mb-3">2. Header</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <label class="block">
+      <span class="text-xs text-slate-500">Payroll No.</span>
+      <input id="h_payrollNo" type="number" min="1" value="1"
+             class="w-full border rounded px-2 py-1 num" />
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500">Week ending (MM/DD/YYYY)</span>
+      <input id="h_weekEnding" type="text" placeholder="08/29/2026"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+    <label class="block md:col-span-2">
+      <span class="text-xs text-slate-500">Project and Location</span>
+      <input id="h_projectLocation" type="text" placeholder="white hall general | White Hall, IL"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+    <label class="block md:col-span-2">
+      <span class="text-xs text-slate-500">Project or Contract No. (federal contract # — flag if unknown)</span>
+      <input id="h_contractNo" type="text" placeholder="[Federal contract #]"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+  </div>
+</section>
+
+<!-- ========== STEP 3: Wage determination ========== -->
+<section class="bg-white rounded-lg shadow p-5">
+  <h2 class="text-lg font-semibold mb-3">3. Wage determination (per SAM.gov WD for the project county)</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <label class="block">
+      <span class="text-xs text-slate-500">Trade / classification</span>
+      <input id="wd_trade" type="text" value="Electrician"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500">Base rate ($/hr)</span>
+      <input id="wd_baseRate" type="number" step="0.01" value="30.49"
+             class="w-full border rounded px-2 py-1 num" />
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500">Cash fringe rate ($/hr) — 0 if plan or none</span>
+      <input id="wd_fringeRate" type="number" step="0.01" value="8.58"
+             class="w-full border rounded px-2 py-1 num" />
+    </label>
+  </div>
+  <p class="text-xs text-slate-500 mt-2">4(b) is checked automatically when fringe rate &gt; 0. Set fringe = 0 to use 4(a) (plan) or leave both unchecked.</p>
+</section>
+
+<!-- ========== STEP 4: Employees ========== -->
+<section class="bg-white rounded-lg shadow p-5">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-lg font-semibold">4. Employees on the DB project that week</h2>
+    <button id="addRow" class="px-3 py-1.5 bg-slate-800 text-white text-sm rounded">+ Add employee</button>
+  </div>
+
+  <div id="rows" class="space-y-3"></div>
+
+  <template id="rowTemplate">
+    <div class="row border rounded p-3 bg-slate-50">
+      <div class="flex items-center justify-between mb-2">
+        <div class="font-semibold text-sm text-slate-700 rowTitle">Employee</div>
+        <button type="button" class="removeRow text-xs text-red-600 hover:underline">remove</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <label class="block">
+          <span class="text-xs text-slate-500">Name + QBO Id (e.g. "Melton, Garrett | 1036")</span>
+          <input class="r_name w-full border rounded px-2 py-1 text-sm" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">DB base hrs (weekly total)</span>
+          <input type="number" step="0.01" class="r_dbHrs w-full border rounded px-2 py-1 num" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">DB fringe hrs (same as base usually)</span>
+          <input type="number" step="0.01" value="0" class="r_dbFringeHrs w-full border rounded px-2 py-1 num" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">Stub total wages (DB + non-DB, ex per diem)</span>
+          <input type="number" step="0.01" class="r_stubWages w-full border rounded px-2 py-1 num" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">Stub FICA (SS + Med)</span>
+          <input type="number" step="0.01" value="0" class="r_fica w-full border rounded px-2 py-1 num" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">Stub W/H (Fed + IL)</span>
+          <input type="number" step="0.01" value="0" class="r_wh w-full border rounded px-2 py-1 num" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">Stub Other (child support, dental, etc.)</span>
+          <input type="number" step="0.01" value="0" class="r_other w-full border rounded px-2 py-1 num" />
+        </label>
+        <label class="block md:col-span-4">
+          <span class="text-xs text-slate-500">DB day hours — Sun..Sat (7 numbers, 0 for non-DB days)</span>
+          <input class="r_daily w-full border rounded px-2 py-1 num text-sm"
+                 placeholder="0, 5.39, 5.39, 5.39, 0, 0, 5.38" />
+        </label>
+      </div>
+      <div class="text-xs text-slate-500 mt-2 rowComputed"></div>
+    </div>
+  </template>
+</section>
+
+<!-- ========== STEP 5: Page 2 ========== -->
+<section class="bg-white rounded-lg shadow p-5">
+  <h2 class="text-lg font-semibold mb-3">5. Page 2 (Statement of Compliance)</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <label class="block">
+      <span class="text-xs text-slate-500">Date signed</span>
+      <input id="p2_date" type="text" value="08/28/2026"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500">Name</span>
+      <input id="p2_name" type="text" value="James M. Carpenter"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500">Title</span>
+      <input id="p2_title" type="text" value="Owner / Subcontractor"
+             class="w-full border rounded px-2 py-1" />
+    </label>
+  </div>
+</section>
+
+<!-- ========== STEP 6: Export ========== -->
+<section class="bg-white rounded-lg shadow p-5">
+  <h2 class="text-lg font-semibold mb-3">6. Export &amp; build</h2>
+  <div class="flex flex-wrap gap-3">
+    <button id="exportJson" class="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700">⬇ Save config JSON</button>
+    <button id="exportRules" class="px-4 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300">📋 Save rules (RULES.md)</button>
+    <button id="copyJson" class="px-4 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300">📑 Copy JSON to clipboard</button>
+    <button id="loadSample" class="px-4 py-2 bg-amber-100 text-amber-900 rounded hover:bg-amber-200">↻ Load sample (week 8/23-8/29/2026)</button>
+  </div>
+  <pre id="jsonOut" class="mt-4 bg-slate-900 text-slate-100 rounded p-3 max-h-72 overflow-auto hidden"></pre>
+</section>
+
+<!-- ========== Help: rules quick reference ========== -->
+<section class="bg-white rounded-lg shadow p-5 text-sm">
+  <h2 class="text-lg font-semibold mb-3">📖 Quick reference</h2>
+  <details open>
+    <summary class="cursor-pointer text-slate-700 font-medium">WD lookup</summary>
+    <p class="mt-2 text-slate-600">SAM.gov → Wage Determinations → state → county → trade. For Davis-Bacon, the WD gives a base rate and (usually) a cash fringe rate. We almost always use 4(b) because the cash fringe is paid as a separate QBO line item.</p>
+  </details>
+  <details>
+    <summary class="cursor-pointer text-slate-700 font-medium mt-3">Daily hours distribution</summary>
+    <p class="mt-2 text-slate-600">If the stub gives a weekly DB total and you have a timecard, use the timecard. If not: distribute proportionally across the DB days, rounding to 2 decimals, last day absorbs the remainder. Sum of 7 day cells must equal the weekly DB total exactly.</p>
+  </details>
+  <details>
+    <summary class="cursor-pointer text-slate-700 font-medium mt-3">Deduction pro-rating</summary>
+    <p class="mt-2 text-slate-600">ratio = db_wages / stub_total_wages. db_wages = base × db_hours + fringe × db_hours. Each stub deduction (FICA, W/H, Other) is multiplied by ratio and rounded to 2 decimals. Net = base gross − total_ded. Math must hold to the cent for every row.</p>
+  </details>
+  <details>
+    <summary class="cursor-pointer text-slate-700 font-medium mt-3">Exclusions from the WH-347</summary>
+    <p class="mt-2 text-slate-600">Per diem, training, bonuses, drive time are not DB wages — exclude from gross, deductions, and net. They appear on the stub but not on the form.</p>
+  </details>
+  <details>
+    <summary class="cursor-pointer text-slate-700 font-medium mt-3">QBO PDF gotcha</summary>
+    <p class="mt-2 text-slate-600">"Print to PDF" / "Save as PDF" truncates the long line list around 6-7 lines and hides the DB / fringe / per-diem rows. Always parse from the on-screen view or an email-sent copy.</p>
+  </details>
+</section>
+
+</main>
+
+<script src="wh347_builder.js"></script>
+</body>
+</html>
