@@ -7,6 +7,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
 <style>
   body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
   .drop-zone { border: 2px dashed #aaa; transition: 0.15s; }
@@ -190,10 +191,12 @@
 <section class="bg-white rounded-lg shadow p-5">
   <h2 class="text-lg font-semibold mb-3">6. Export &amp; build</h2>
   <div class="flex flex-wrap gap-3">
-    <button id="exportJson" class="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700">⬇ Save config JSON</button>
-    <button id="exportRules" class="px-4 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300">📋 Save rules (RULES.md)</button>
-    <button id="copyJson" class="px-4 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300">📑 Copy JSON to clipboard</button>
-    <button id="loadSample" class="px-4 py-2 bg-amber-100 text-amber-900 rounded hover:bg-amber-200">↻ Load sample (week 8/23-8/29/2026)</button>
+    <button id="buildPdf" class="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700">📄 Build WH-347 PDF</button>
+    <button id="emailPdf" class="px-4 py-2 bg-sky-600 text-white rounded hover:bg-sky-700" title="Opens your mail client with a pre-filled subject and body. Save the PDF first, then attach it.">📧 Email PDF</button>
+    <button id="exportJson" class="px-3 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300 text-sm">⬇ Save config JSON</button>
+    <button id="copyJson" class="px-3 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300 text-sm">📑 Copy JSON</button>
+    <button id="exportRules" class="px-3 py-2 bg-slate-200 text-slate-800 rounded hover:bg-slate-300 text-sm">📋 Rules</button>
+    <button id="loadSample" class="px-3 py-2 bg-amber-100 text-amber-900 rounded hover:bg-amber-200 text-sm">↻ Load sample</button>
   </div>
   <pre id="jsonOut" class="mt-4 bg-slate-900 text-slate-100 rounded p-3 max-h-72 overflow-auto hidden"></pre>
 </section>

@@ -378,7 +378,7 @@ $("#exportJson").addEventListener("click", () => {
 $("#copyJson").addEventListener("click", async () => {
   const cfg = buildConfig();
   await navigator.clipboard.writeText(JSON.stringify(cfg, null, 2));
-  alert("Copied JSON to clipboard. Hand it to Mavis and he'll run: python build_wh347.py wh347_config.json");
+  alert("Copied JSON to clipboard.");
 });
 $("#exportRules").addEventListener("click", () => {
   // Embed the rules text inline since we don't fetch RULES.md from disk in a static page.
@@ -403,6 +403,320 @@ Page 2: 4(b) checked, name James M. Carpenter, title Owner / Subcontractor, sign
 `;
   download("wh347_rules.txt", rules);
 });
+
+// ---------- WH-347 PDF build + email ----------
+$("#buildPdf").addEventListener("click", () => buildWh347Pdf());
+$("#emailPdf").addEventListener("click", () => emailWh347Pdf());
+
+function buildWh347Pdf() {
+  const cfg = buildConfig();
+  if (!cfg.employees.length) {
+    alert("Add at least one employee row before building the WH-347 PDF.");
+    return;
+  }
+  if (!cfg.header.week_ending &&
+      !confirm("Week ending is empty — the PDF header will show a blank date. Continue?")) {
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const PAGE_W = 612;
+  const MARGIN = 40;
+
+  // =================== PAGE 1 ===================
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text("Form WH-347 (Rev. 02/2013)", MARGIN, 36);
+
+  doc.setFontSize(15);
+  doc.setFont("helvetica", "bold");
+  doc.text("PAYROLL  (Construction Industry)", MARGIN, 56);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "italic");
+  doc.text("U.S. Department of Labor", MARGIN, 72);
+
+  // Week-ending bar
+  doc.setFillColor(225, 225, 225);
+  doc.rect(MARGIN, 84, PAGE_W - 2 * MARGIN, 22, "F");
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Payroll For Week Ending:    ${cfg.header.week_ending || "—"}`, MARGIN + 6, 99);
+
+  // Header info
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  let y = 124;
+  const hdrLine = (label, value) => {
+    doc.setFont("helvetica", "bold");
+    doc.text(label, MARGIN, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(value || "—"), MARGIN + doc.getTextWidth(label) + 6, y);
+    y += 14;
+  };
+  hdrLine("Project and Location: ", cfg.header.project_location);
+  hdrLine("Project or Contract No.: ", cfg.header.contract_no);
+  hdrLine("Payroll No.: ", cfg.header.payroll_no);
+  hdrLine("Trade / Classification: ", cfg.wage_determination.trade);
+  hdrLine("Base rate ($/hr): ", `$${cfg.wage_determination.base_rate.toFixed(2)}`);
+  hdrLine("Fringe rate ($/hr): ", `$${cfg.wage_determination.fringe_rate.toFixed(2)}`);
+
+  // Compute per-row WH-347 columns
+  const baseRate = cfg.wage_determination.base_rate;
+  const fringeRate = cfg.wage_determination.fringe_rate;
+  const rows = cfg.employees.map((emp) => {
+    const dbHrs = emp.db_hours || 0;
+    const fringeHrs = emp.db_fringe_hours || 0;
+    const baseGross = round2(baseRate * dbHrs);
+    const dbWages = baseRate * dbHrs + fringeRate * fringeHrs;
+    const ratio = emp.stub_wages > 0 ? dbWages / emp.stub_wages : 0;
+    const dFica = round2(emp.stub_fica * ratio);
+    const dWh = round2(emp.stub_wh * ratio);
+    const dOther = round2(emp.stub_other * ratio);
+    const totDed = round2(dFica + dWh + dOther);
+    const net = round2(baseGross - totDed);
+    return {
+      name: emp.name || "(unnamed)",
+      ssn: "",          // not captured by intake
+      straight: dbHrs,  // all DB hours treated as straight-time
+      ot: 0,
+      totalHrs: dbHrs,
+      gross: baseGross,
+      fica: dFica,
+      wh: dWh,
+      other: dOther,
+      net: net,
+      checkNo: "",      // not captured by intake
+    };
+  });
+
+  const sumCol = (key) => round2(rows.reduce((a, r) => a + (r[key] || 0), 0));
+  const totalsRow = {
+    name: "TOTAL",
+    straight: sumCol("straight"),
+    ot: sumCol("ot"),
+    totalHrs: sumCol("totalHrs"),
+    gross: sumCol("gross"),
+    fica: sumCol("fica"),
+    wh: sumCol("wh"),
+    other: sumCol("other"),
+    net: sumCol("net"),
+  };
+
+  // ---- Manual table render (no AutoTable dependency) ----
+  // Column geometry: x positions and widths
+  const cols = [
+    { label: "NAME",           x:  40, w: 110, align: "left"  },
+    { label: "SSN\n(last 4)",  x: 150, w:  35, align: "right" },
+    { label: "STRAIGHT\nHRS",  x: 185, w:  38, align: "right" },
+    { label: "OVERTIME\nHRS",  x: 223, w:  38, align: "right" },
+    { label: "TOTAL\nHRS",     x: 261, w:  38, align: "right" },
+    { label: "GROSS\nAMOUNT",  x: 299, w:  52, align: "right" },
+    { label: "FICA",           x: 351, w:  40, align: "right" },
+    { label: "WITH-\nHOLDING", x: 391, w:  44, align: "right" },
+    { label: "OTHER\nDED",     x: 435, w:  44, align: "right" },
+    { label: "NET\nWAGES",     x: 479, w:  53, align: "right" },
+    { label: "CHECK\nNO.",     x: 532, w:  40, align: "right" },
+  ];
+  const tableLeft = cols[0].x;
+  const tableRight = cols[cols.length - 1].x + cols[cols.length - 1].w;
+  const headH = 22; // 2-line header
+  const rowH  = 16;
+  let ty = y + 6;
+
+  // Header
+  doc.setFillColor(60, 60, 60);
+  doc.rect(tableLeft, ty, tableRight - tableLeft, headH, "F");
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  cols.forEach((c) => {
+    const lines = c.label.split("\n");
+    const lineH = 8;
+    const blockH = lines.length * lineH;
+    const top = ty + (headH - blockH) / 2 + lineH - 1;
+    doc.text(lines[0], c.align === "left" ? c.x + 4 : c.x + c.w - 4, top, { align: c.align });
+    if (lines[1]) {
+      doc.text(lines[1], c.align === "left" ? c.x + 4 : c.x + c.w - 4, top + lineH, { align: c.align });
+    }
+  });
+  ty += headH;
+
+  // Body rows
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+
+  const drawRow = (vals, isTotal) => {
+    if (isTotal) {
+      doc.setFillColor(240, 240, 240);
+      doc.rect(tableLeft, ty, tableRight - tableLeft, rowH, "F");
+      doc.setFont("helvetica", "bold");
+    }
+    cols.forEach((c, i) => {
+      const txt = String(vals[i] ?? "");
+      doc.text(
+        txt,
+        c.align === "left" ? c.x + 4 : c.x + c.w - 4,
+        ty + rowH - 4,
+        { align: c.align },
+      );
+    });
+    if (isTotal) doc.setFont("helvetica", "normal");
+    // horizontal rule under the row
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.3);
+    doc.line(tableLeft, ty + rowH, tableRight, ty + rowH);
+    ty += rowH;
+  };
+
+  rows.forEach((r) => {
+    drawRow([
+      r.name, r.ssn,
+      r.straight.toFixed(2), r.ot.toFixed(2), r.totalHrs.toFixed(2),
+      r.gross.toFixed(2), r.fica.toFixed(2), r.wh.toFixed(2),
+      r.other.toFixed(2), r.net.toFixed(2), r.checkNo,
+    ], false);
+  });
+  drawRow([
+    totalsRow.name, "",
+    totalsRow.straight.toFixed(2), totalsRow.ot.toFixed(2), totalsRow.totalHrs.toFixed(2),
+    totalsRow.gross.toFixed(2), totalsRow.fica.toFixed(2), totalsRow.wh.toFixed(2),
+    totalsRow.other.toFixed(2), totalsRow.net.toFixed(2), "",
+  ], true);
+
+  // Vertical column rules
+  doc.setDrawColor(180, 180, 180);
+  doc.setLineWidth(0.3);
+  doc.line(tableLeft, y + 6, tableLeft, ty);                          // left edge
+  doc.line(tableRight, y + 6, tableRight, ty);                        // right edge
+  for (let i = 1; i < cols.length; i++) {
+    doc.line(cols[i].x, y + 6, cols[i].x, ty);
+  }
+  doc.setLineWidth(0.2);
+
+  // =================== PAGE 2 ===================
+  doc.addPage();
+  y = 36;
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text("Form WH-347 (Rev. 02/2013)", MARGIN, y);
+  y += 22;
+
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("Statement of Compliance", MARGIN + 180, y);
+  y += 22;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  const statement =
+    "I, ____________________________________________________ (Name)\n" +
+    "        ____________________________________________________ (Title)\n\n" +
+    "do hereby state under penalty of perjury that the payroll data above is correct and\n" +
+    "complete; that the wage rates paid to the laborers and mechanics listed above are\n" +
+    "not less than the applicable wage determinations issued by the U.S. Department of\n" +
+    "Labor; and that the classifications set forth for each laborer or mechanic conform\n" +
+    "with the work performed.";
+  doc.text(doc.splitTextToSize(statement, PAGE_W - 2 * MARGIN), MARGIN, y);
+  y += 110;
+
+  // Fringe checkboxes
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("Fringe Benefits paid:", MARGIN, y);
+  y += 16;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+
+  const isCashFringe  = fringeRate > 0;
+  const isPlan        = false;          // not modeled in intake
+  const isBoth        = false;
+
+  const checkBox = (label, checked, indent = 0) => {
+    const x = MARGIN + indent;
+    doc.rect(x, y - 7, 9, 9);
+    if (checked) {
+      doc.setLineWidth(1.2);
+      doc.line(x + 1.2, y - 4.5, x + 3.6, y - 2);
+      doc.line(x + 3.6, y - 2,   x + 8,   y - 7.5);
+      doc.setLineWidth(0.3);
+    }
+    const wrapped = doc.splitTextToSize(label, PAGE_W - 2 * MARGIN - 30 - indent);
+    doc.text(wrapped, x + 14, y);
+    y += Math.max(14, wrapped.length * 11);
+  };
+
+  checkBox(
+    "4(a) CONTRIBUTIONS to fringe benefit plans (plans approved by the Department of Labor)",
+    isPlan,
+  );
+  checkBox(
+    "4(b) CASH PAYMENTS in lieu of fringe benefits (paid in addition to the basic hourly wage rate)",
+    isCashFringe,
+  );
+  checkBox(
+    "4(c) BOTH — fringe benefits paid partially in plans and partially in cash",
+    isBoth,
+  );
+
+  y += 14;
+  // Signature block
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("Signature:", MARGIN, y);
+  doc.setFont("helvetica", "normal");
+  doc.line(MARGIN + 70, y, MARGIN + 320, y);
+  y += 28;
+
+  const sigLine = (label, value) => {
+    doc.setFont("helvetica", "bold");
+    doc.text(label, MARGIN, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(value || "—"), MARGIN + doc.getTextWidth(label) + 6, y);
+    y += 16;
+  };
+  sigLine("Name (printed): ", cfg.page2.name);
+  sigLine("Title: ", cfg.page2.title);
+  sigLine("Date signed: ", cfg.page2.date);
+
+  // Footer
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "italic");
+  doc.text(
+    "Generated by WH-347 Builder — Under the Sun Solar · FEIN 99-1689536",
+    MARGIN,
+    770,
+  );
+
+  const fname = `WH-347_${(cfg.header.week_ending || "draft").replace(/[^\d]/g, "_")}_p${cfg.header.payroll_no}.pdf`;
+  doc.save(fname);
+  return fname;
+}
+
+function emailWh347Pdf() {
+  const cfg = buildConfig();
+  if (!cfg.employees.length) {
+    alert("Add at least one employee row before emailing the WH-347 PDF.");
+    return;
+  }
+  const subject =
+    `WH-347 — ${cfg.header.project_location || "Davis-Bacon payroll"} — week ending ${cfg.header.week_ending || "(date)"}`;
+  const body =
+    `Project: ${cfg.header.project_location || "—"}\n` +
+    `Contract No.: ${cfg.header.contract_no || "—"}\n` +
+    `Payroll No.: ${cfg.header.payroll_no}\n` +
+    `Week ending: ${cfg.header.week_ending || "—"}\n` +
+    `Employees: ${cfg.employees.length}\n\n` +
+    `1. Save the WH-347 PDF first (click "📄 Build WH-347 PDF").\n` +
+    `2. Attach the saved PDF to this email.\n` +
+    `3. Send.\n\n` +
+    `— Under the Sun Solar · FEIN 99-1689536`;
+  window.location.href =
+    `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 
 function buildConfig() {
   const employees = $$("#rows .row").map((row) => ({
