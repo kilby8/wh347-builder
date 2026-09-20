@@ -475,6 +475,31 @@ $("#loadSample").addEventListener("click", () => {
   updateJsonPreview();
 });
 
+// ---------- Clear-all (wipe employees + header + source for a new week) ----------
+$("#clearAll").addEventListener("click", () => {
+  const hasContent =
+    rowsEl.children.length > 0 ||
+    $("#h_weekEnding").value ||
+    $("#h_projectLocation").value ||
+    $("#h_contractNo").value ||
+    $("#stubtext").value;
+  if (hasContent && !confirm("Clear all employees, header fields, and source data? This cannot be undone.")) return;
+  // Wipe employees
+  rowsEl.innerHTML = "";
+  refreshRowTitles();
+  // Wipe header (reset payroll no to 1, clear the rest)
+  $("#h_payrollNo").value = 1;
+  $("#h_weekEnding").value = "";
+  $("#h_projectLocation").value = "";
+  $("#h_contractNo").value = "";
+  // Wipe source data
+  $("#stubtext").value = "";
+  $("#rawDump").classList.add("hidden");
+  $("#rawText").textContent = "";
+  // Wipe JSON preview (will re-render as empty config)
+  updateJsonPreview();
+});
+
 // ---------- Wire up ----------
 $("#addRow").addEventListener("click", () => newRow());
 $("#h_payrollNo").addEventListener("input", updateJsonPreview);
