@@ -692,7 +692,18 @@ function buildWh347Pdf() {
   );
 
   const fname = `WH-347_${(cfg.header.week_ending || "draft").replace(/[^\d]/g, "_")}_p${cfg.header.payroll_no}.pdf`;
-  doc.save(fname);
+  // jsPDF 4.x removed doc.save(); trigger the download manually via a blob.
+  const blob = doc.output("blob");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fname;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Defer revoke so the browser has time to start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   return fname;
 }
 
