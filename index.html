@@ -199,6 +199,19 @@
     <button id="loadSample" class="px-3 py-2 bg-amber-100 text-amber-900 rounded hover:bg-amber-200 text-sm">↻ Load sample</button>
   </div>
   <pre id="jsonOut" class="mt-4 bg-slate-900 text-slate-100 rounded p-3 max-h-72 overflow-auto hidden"></pre>
+
+  <!-- PDF preview pane — shown after Build WH-347 PDF. Right-click to save. -->
+  <div id="pdfPreview" class="mt-4 hidden">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-semibold text-slate-700">PDF preview</h3>
+      <div class="flex gap-2">
+        <a id="pdfDownloadLink" class="px-3 py-1.5 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700" download>⬇ Download</a>
+        <button id="pdfOpenNew" class="px-3 py-1.5 bg-slate-200 text-slate-800 text-sm rounded hover:bg-slate-300">↗ Open in new tab</button>
+      </div>
+    </div>
+    <iframe id="pdfFrame" class="w-full bg-white border rounded shadow-inner" style="height: 720px;"></iframe>
+    <p class="text-xs text-slate-500 mt-1">Right-click the preview to save or print. Use Download / Open in new tab if the iframe doesn't render.</p>
+  </div>
 </section>
 
 <!-- ========== Help: rules quick reference ========== -->

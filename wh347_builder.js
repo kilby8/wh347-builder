@@ -405,7 +405,14 @@ Page 2: 4(b) checked, name James M. Carpenter, title Owner / Subcontractor, sign
 });
 
 // ---------- WH-347 PDF build + email ----------
-$("#buildPdf").addEventListener("click", () => buildWh347Pdf());
+$("#buildPdf").addEventListener("click", () => {
+  try {
+    buildWh347Pdf();
+  } catch (e) {
+    console.error("WH-347 PDF build failed:", e);
+    alert("PDF build failed: " + e.message + "\n\nIf this keeps happening, open the browser console (F12) and send me the error.");
+  }
+});
 $("#emailPdf").addEventListener("click", () => emailWh347Pdf());
 
 function buildWh347Pdf() {
@@ -692,9 +699,32 @@ function buildWh347Pdf() {
   );
 
   const fname = `WH-347_${(cfg.header.week_ending || "draft").replace(/[^\d]/g, "_")}_p${cfg.header.payroll_no}.pdf`;
-  // jsPDF 4.x removed doc.save(); trigger the download manually via a blob.
+  // jsPDF 4.x removed doc.save(); build a blob and surface it three ways:
+  //   1) Inline preview iframe — James can SEE the PDF right on the page
+  //      and right-click to save or print.
+  //   2) Explicit Download button in the preview pane (above).
+  //   3) Open in new tab — opens Chrome's PDF viewer with its own save UI.
+  // Anchor-click download is left as a fourth fallback for browsers that
+  // happen to honor it.
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
+
+  // 1) Inline preview (primary, most reliable)
+  const frame = document.getElementById("pdfFrame");
+  const dl = document.getElementById("pdfDownloadLink");
+  const openBtn = document.getElementById("pdfOpenNew");
+  if (frame)  frame.src = url;
+  if (dl) {
+    dl.href = url;
+    dl.download = fname;
+  }
+  if (openBtn) {
+    openBtn.onclick = () => window.open(url, "_blank");
+  }
+  const prev = document.getElementById("pdfPreview");
+  if (prev) prev.classList.remove("hidden");
+
+  // 2) Anchor click as fallback (some browsers honor it)
   const a = document.createElement("a");
   a.href = url;
   a.download = fname;
@@ -702,8 +732,9 @@ function buildWh347Pdf() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // Defer revoke so the browser has time to start the download.
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  // Defer revoke so the iframe and any new-tab open have time to read the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
   return fname;
 }
 
