@@ -99,16 +99,203 @@ fi.addEventListener("change", (e) => handleFiles(e.target.files));
 
 async function handleFiles(fileList) {
   for (const file of fileList) {
-    if (file.type !== "application/pdf") continue;
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    let text = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      text += content.items.map((it) => it.str).join(" ") + "\n";
+    const name = file.name || "";
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const isPdf =
+      file.type === "application/pdf" || ext === "pdf";
+    const isSheet =
+      ["xls", "xlsx", "xlsm", "csv"].includes(ext) ||
+      file.type === "application/vnd.ms-excel" ||
+      file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+      file.type === "text/csv";
+
+    if (isPdf) {
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      let text = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((it) => it.str).join(" ") + "\n";
+      }
+      parseStubText(text);
+    } else if (isSheet) {
+      const buf = await file.arrayBuffer();
+      parseSpreadsheet(buf, name);
+    } else {
+      alert(`Unsupported file type: ${name} (${file.type || "unknown"}). Drop a PDF or XLS/XLSX/CSV.`);
     }
-    parseStubText(text);
+  }
+}
+
+// ---------- Spreadsheet parser (XLS/XLSX/CSV) ----------
+function parseSpreadsheet(arrayBuffer, fileName) {
+  let workbook;
+  try {
+    workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
+  } catch (e) {
+    alert(`Couldn't read ${fileName}: ${e.message}`);
+    return;
+  }
+
+  // Pick the first sheet (QBO reports are usually single-sheet).
+  // Future: let user pick if multiple.
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) {
+    alert("Workbook has no sheets.");
+    return;
+  }
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", blankrows: false });
+  if (!rows.length) {
+    alert("Sheet is empty.");
+    return;
+  }
+
+  // Dump everything to the raw preview so the user can eyeball it
+  $("#rawDump").classList.remove("hidden");
+  $("#rawText").textContent =
+    `File: ${fileName}\nSheet: ${sheetName}\nRows: ${rows.length}\n\n` +
+    rows.map((r, i) => `R${i + 1}: ${r.join("\t")}`).join("\n");
+
+  // ---- Wide-format detection: find a header row containing 'employee' ----
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 25); i++) {
+    const cells = rows[i].map(norm);
+    if (cells.some((c) => /^(employee(\s+name)?|payee|name)$/i.test(c)) ||
+        cells.some((c) => c.includes("employee") && !c.includes("ssn"))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+
+  if (headerRowIdx === -1) {
+    alert(
+      "Couldn't find an 'Employee' header row in this sheet. " +
+      "Inspect the raw dump below, then paste the stub text manually or " +
+      "export the QBO report with the standard 'Employee' column."
+    );
+    return;
+  }
+
+  const headers = rows[headerRowIdx].map(norm);
+
+  // Column resolver: pick the FIRST header whose normalized text matches any of the regex patterns
+  const findCol = (patterns) => {
+    for (let i = 0; i < headers.length; i++) {
+      const h = headers[i];
+      if (patterns.some((p) => p.test(h))) return i;
+    }
+    return -1;
+  };
+
+  const colName       = findCol([/^employee(\s+name)?$/, /^name$/, /^payee$/]);
+  const colPeriod     = findCol([/pay\s*period/, /check\s*date/, /^date$/, /period\s+end/]);
+  // Earnings: regular pay + DB base (Greene County / Davis-Bacon / project labor) + DB fringe
+  const colRegHours   = findCol([/^regular\s+hours?$/, /^hours$/]);
+  const colRegAmt     = findCol([/^regular(\s+pay|\s+earnings?)?$/, /^reg(\s+pay)?$/]);
+  const colDbBaseAmt  = findCol([/new\s+electrician/, /greene\s+county/, /\bpw\b/, /davis[\s_-]*bacon/, /db\s*base/]);
+  const colDbBaseHrs  = findCol([/electrician.*\bhours?\b/, /db\s*base.*hours/, /project\s*labor.*hours/]);
+  const colFringeAmt  = findCol([/\bfringe\b/, /db\s*fringe/]);
+  const colFringeHrs  = findCol([/fringe.*\bhours?\b/, /db\s*fringe.*hours/]);
+  const colGross      = findCol([/^gross(\s+pay)?$/, /^total\s+earnings?$/, /^gross\s+earnings?$/]);
+  // Deductions
+  const colSsTax      = findCol([/social\s+security/, /\bss\s+tax\b/, /\boasdi\b/]);
+  const colMedicare   = findCol([/medicare/, /\bmed\s+tax\b/]);
+  const colFedTax     = findCol([/federal\s+income\s+tax/, /federal\s+withhold/, /\bfed\s+tax\b/, /\bfit\b/]);
+  const colStateTax   = findCol([/il\s+income\s+tax/, /il\s+withhold/, /state\s+income\s+tax/, /state\s+withhold/]);
+  const colNet        = findCol([/^net\s+pay$/]);
+
+  if (colName === -1) {
+    alert(
+      "Found a header row but couldn't locate an 'Employee' column. " +
+      "Rename the column to 'Employee' and re-export, or paste stub text manually."
+    );
+    return;
+  }
+
+  const num = (v) => {
+    if (typeof v === "number") return v;
+    if (v == null) return 0;
+    const s = String(v).replace(/[$,\s]/g, "").replace(/[()]/g, "-");
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  };
+
+  let addedCount = 0;
+  const seenNames = new Set();
+
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    const name = String(row[colName] || "").trim();
+    if (!name) continue;
+    // Skip totals/footer rows (often have "Total" in name or no numeric data)
+    if (/^(total|grand\s+total|net\s+total)/i.test(name)) continue;
+    // De-dup: if QBO lists each pay-check item as a separate row, skip repeats of the same name+period
+    const period = colPeriod !== -1 ? String(row[colPeriod] || "").trim() : "";
+    const key = `${name}|${period}`;
+    if (seenNames.has(key)) continue;
+    seenNames.add(key);
+
+    const regAmt     = colRegAmt    !== -1 ? num(row[colRegAmt])    : 0;
+    const regHrs     = colRegHours  !== -1 ? num(row[colRegHours])  : 0;
+    const dbBaseAmt  = colDbBaseAmt !== -1 ? num(row[colDbBaseAmt]) : 0;
+    const dbBaseHrs  = colDbBaseHrs !== -1 ? num(row[colDbBaseHrs]) : 0;
+    const fringeAmt  = colFringeAmt !== -1 ? num(row[colFringeAmt]) : 0;
+    const fringeHrs  = colFringeHrs !== -1 ? num(row[colFringeHrs]) : 0;
+    const gross      = colGross     !== -1 ? num(row[colGross])     : 0;
+    const ssTax      = colSsTax     !== -1 ? num(row[colSsTax])     : 0;
+    const medicare   = colMedicare  !== -1 ? num(row[colMedicare])  : 0;
+    const fedTax     = colFedTax    !== -1 ? num(row[colFedTax])    : 0;
+    const stateTax   = colStateTax  !== -1 ? num(row[colStateTax])  : 0;
+
+    // If we have a gross column, prefer it as the stub wage total
+    const stubWages = gross > 0 ? gross : round2(regAmt + dbBaseAmt + fringeAmt);
+    // DB base hours: prefer dedicated column, else derive from rate*amount if rate is in there,
+    // else use regular hours as the best guess (matches "the whole DB project IS the regular shift" case)
+    const dbHrs = dbBaseHrs > 0
+      ? dbBaseHrs
+      : (regHrs > 0 ? regHrs : (dbBaseAmt > 0 ? Math.round((dbBaseAmt / 30.49) * 100) / 100 : 0));
+    const dbFringeHrs = fringeHrs > 0 ? fringeHrs : dbHrs;
+    const fica = round2(ssTax + medicare);
+    const wh = round2(fedTax + stateTax);
+    // "Other" = residual after fica + wh, only if we have a Net Pay reference
+    let other = 0;
+    if (colNet !== -1) {
+      const net = num(row[colNet]);
+      // Net + fica + wh should equal gross (approximately). Diff = other.
+      const otherResidual = stubWages - fica - wh - net;
+      other = Math.max(0, round2(otherResidual));
+    }
+
+    newRow({
+      name: name,
+      dbHrs: dbHrs,
+      dbFringeHrs: dbFringeHrs,
+      stubWages: stubWages,
+      fica: fica,
+      wh: wh,
+      other: other,
+      daily: distributeDefault(dbHrs),
+    });
+    addedCount++;
+  }
+
+  // First row's pay period → week ending if empty
+  if (colPeriod !== -1 && !$("#h_weekEnding").value) {
+    const firstPeriod = String(rows[headerRowIdx + 1][colPeriod] || "").trim();
+    const dateMatch = firstPeriod.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    if (dateMatch) $("#h_weekEnding").value = dateMatch[1];
+  }
+
+  if (addedCount === 0) {
+    alert(
+      "Found the header row but no data rows matched. " +
+      "Inspect the raw dump and paste stub text manually, or check the report's row layout."
+    );
+  } else {
+    updateJsonPreview();
   }
 }
 

@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
   .drop-zone { border: 2px dashed #aaa; transition: 0.15s; }
@@ -37,9 +38,9 @@
 
   <div id="dropzone" class="drop-zone rounded-md p-6 text-center text-slate-500 cursor-pointer">
     <div class="text-3xl mb-1">📄</div>
-    <div class="text-sm">Drop a QBO pay-stub PDF here, or click to choose a file</div>
-    <div class="text-xs text-slate-400 mt-1">Multiple files OK — one per employee. Or paste raw stub text below.</div>
-    <input id="fileinput" type="file" accept="application/pdf" multiple class="hidden" />
+    <div class="text-sm">Drop a QBO pay-stub PDF or pay-stub export (XLS/XLSX/CSV) here, or click to choose a file</div>
+    <div class="text-xs text-slate-400 mt-1">PDF = one employee per file · XLS/XLSX/CSV = one file with many employees (QBO Payroll reports). Or paste raw stub text below.</div>
+    <input id="fileinput" type="file" accept="application/pdf,.pdf,.xls,.xlsx,.xlsm,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple class="hidden" />
   </div>
 
   <details class="mt-3">
